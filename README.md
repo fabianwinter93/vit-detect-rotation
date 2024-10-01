@@ -31,3 +31,4 @@ command line options
 | `--compile` | Use torch.compile on the model |
 | `--script` | Use torch.jit.script on the model |
 | `--trace` | Use torch.jit.trace on the model |
+| `--no-gpu` | Do not use a gpu (by default gpu is used) |
