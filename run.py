@@ -10,12 +10,12 @@ import glob
 import argparse
 
 import torch
+
 from PIL import Image 
 import timm
 
 from tqdm import tqdm
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #model_name = "timm/vit_small_patch16_384.augreg_in21k_ft_in1k"
 #ckp = "vit_small_patch16_384.augreg_in21k_ft_in1k_with_orientation_head.pt"
@@ -34,7 +34,7 @@ model = timm.create_model(
 """
 
 model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
-
+model.eval()    
 
 
 data_config = timm.data.resolve_model_data_config(model)
@@ -91,32 +91,78 @@ def find_files(dirpath, recursive):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('source_dir')           
-    parser.add_argument('--recursive', default="NO",
-                        help="If exactly YES, will find files in subfolders as well. For any other value, will only consider files in the source directory")
-    parser.add_argument("--quadro", default="NO", help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
-    parser.add_argument("--dry", default="NO", help="If exactly YES, do nothing")
+    parser.add_argument('--recursive', action="store_true", help="If exactly YES, will find files in subfolders as well. For any other value, will only consider files in the source directory")
+    parser.add_argument("--quadro", action='store_true', help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
+    parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
+    
+    parser.add_argument("--no-gpu", action='store_true')
+
+    parser.add_argument("--compile", action='store_true')
+    parser.add_argument("--trace", action='store_true')
+    parser.add_argument("--script", action='store_true')
+
+    parser.add_argument("--bf16", action='store_true')
+    parser.add_argument("--f16", action='store_true')
+    parser.add_argument("--f32", action='store_true')
+    
     parser.add_argument("-v", default="2", help="verbosity level")
     
     args = parser.parse_args()
 
-    RECURSIVE = args.recursive == "YES"
-    QUADRO = args.quadro == "YES"
-    DRY = args.dry == "YES"
+    if not args.no_gpu:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device("cpu")
+    
+    RECURSIVE = args.recursive
+    QUADRO = args.quadro
+    DRY = args.dry
     VERBOSE = args.v
 
     assert VERBOSE in ["0", "1", "2"], "Only levels 0, 1, 2 are valid."
 
-    if QUADRO:
-        trace_inp = torch.rand((4, 3, 224, 224))
-    else:
-        trace_inp = torch.rand((1, 3, 224, 224))
+    
+    
+    
+    if args.bf16:
+        dtype = torch.bfloat16
+        model.bfloat16()
         
-    model.eval()    
-    model.to(device)
-    model = torch.jit.script(model, trace_inp.to(device))
-    #model = torch.jit.optimize_for_inference(model)
-    model = torch.compile(model, backend="cudagraphs", fullgraph=True)
+    elif args.f16:
+        dtype = torch.float16
+        model.float16()
+        
+    elif args.f32:
+        dtype = torch.float32
+        model.float32()
 
+    
+    model.to(device)
+    
+    if args.compile:
+        model = torch.compile(model, backend="cudagraphs", fullgraph=True)
+
+    if args.script:
+        if QUADRO:
+            trace_inp = torch.rand((4, 3, 224, 224))
+        else:
+            trace_inp = torch.rand((1, 3, 224, 224))
+        model = torch.jit.script(model, trace_inp.bfloat16().to(device))
+    elif args.trace:
+        if QUADRO:
+            trace_inp = torch.rand((4, 3, 224, 224))
+        else:
+            trace_inp = torch.rand((1, 3, 224, 224))
+        model = torch.jit.trace(model, trace_inp.bfloat16().to(device))
+
+
+
+    #with torch.no_grad():
+        #pass
+        #model = torch.jit.script(model, trace_inp.bfloat16().to(device))
+        #model = torch.jit.optimize_for_inference(model)
+        #model = torch.compile(model, backend="cudagraphs", fullgraph=True)
+        
     src_dir = os.path.abspath(args.source_dir)
 
     source_files = find_files(src_dir, RECURSIVE)
@@ -146,7 +192,7 @@ if __name__ == "__main__":
 
             
             img = Image.open(fpath)
-            batch = prepare_batch(img, True)
+            batch = prepare_batch(img, True).to(dtype)
             
             pred = predict(batch)
 
