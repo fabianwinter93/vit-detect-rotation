@@ -3,6 +3,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+os.environ["HUGGINGFACE_HUB_CACHE"] = "./models"
+
 import glob
 
 import argparse
@@ -17,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #model_name = "timm/vit_small_patch16_384.augreg_in21k_ft_in1k"
 #ckp = "vit_small_patch16_384.augreg_in21k_ft_in1k_with_orientation_head.pt"
-
+"""
 model_name = "timm/vit_base_patch16_224.augreg2_in21k_ft_in1k"
 ckp = "vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt"
 
@@ -29,7 +31,9 @@ model = timm.create_model(
     pretrained=True,
     num_classes=4,
 )
+"""
 
+model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
 
 
 
@@ -107,10 +111,12 @@ if __name__ == "__main__":
     else:
         trace_inp = torch.rand((1, 3, 224, 224))
         
-    model.eval()
-    model = torch.jit.trace(model, trace_inp)
+    model.eval()    
     model.to(device)
-    
+    model = torch.jit.script(model, trace_inp.to(device))
+    #model = torch.jit.optimize_for_inference(model)
+    model = torch.compile(model, backend="cudagraphs", fullgraph=True)
+
     src_dir = os.path.abspath(args.source_dir)
 
     source_files = find_files(src_dir, RECURSIVE)
@@ -137,9 +143,9 @@ if __name__ == "__main__":
 
             fname = source_files[i]
             fpath = os.path.join(src_dir, fname)
+
             
             img = Image.open(fpath)
-            
             batch = prepare_batch(img, True)
             
             pred = predict(batch)
