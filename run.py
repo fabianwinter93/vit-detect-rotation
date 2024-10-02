@@ -3,6 +3,12 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+
+try:
+    os.mkdir("./models")
+except FileExistsError:
+    pass
+
 os.environ["HUGGINGFACE_HUB_CACHE"] = "./models"
 
 import glob
