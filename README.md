@@ -17,7 +17,7 @@ pip install -r requirements.txt
 use from CL
 
 ```
-python run.py path/to/image_folder --recursive --dry --quadro --bf16 -v=2
+python run.py path/to/image_folder --recursive --dry --quadro --bf16 --verbosity=2
 ```  
 
 command line options
