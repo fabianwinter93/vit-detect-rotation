@@ -6,6 +6,9 @@ detect the orientation of an image with a finetuned vision-tranformer
 create virtual environment and install requirements
 ```
 python -m venv .venv
+
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
 cd vit-detect-rotation
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
