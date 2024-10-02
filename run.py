@@ -135,13 +135,13 @@ if __name__ == "__main__":
             trace_inp = torch.rand((4, 3, 224, 224))
         else:
             trace_inp = torch.rand((1, 3, 224, 224))
-        model = torch.jit.script(model, trace_inp.bfloat16().to(device))
+        model = torch.jit.script(model, trace_inp.to(dtype).to(device))
     elif args.trace:
         if QUADRO:
             trace_inp = torch.rand((4, 3, 224, 224))
         else:
             trace_inp = torch.rand((1, 3, 224, 224))
-        model = torch.jit.trace(model, trace_inp.bfloat16().to(device))
+        model = torch.jit.trace(model, trace_inp.to(dtype).to(device))
 
 
 
