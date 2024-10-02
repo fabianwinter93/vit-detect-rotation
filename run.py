@@ -1,5 +1,5 @@
 import warnings
-warnings.filterwarnings("ignore")
+#warnings.filterwarnings("ignore")
 
 import os
 
@@ -20,13 +20,31 @@ torch.set_grad_enabled(False)
 
 import timm
 
+def load_model():
+    model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
+    model.eval()
+    
+    data_config = timm.data.resolve_model_data_config(model)
+    inference_transforms = timm.data.create_transform(**data_config, is_training=False)
+    return model, inference_transforms
 
-model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
-model.eval()    
+def load_quant_model():
+    model = load_model()
+        
+    data_config = timm.data.resolve_model_data_config(model)
+    inference_transforms = timm.data.create_transform(**data_config, is_training=False)
 
-
-data_config = timm.data.resolve_model_data_config(model)
-inference_transforms = timm.data.create_transform(**data_config, is_training=False)
+    try:
+        qmodel = torch.load("models/quantized_model")
+    except:
+        qmodel = torch.quantization.quantize_dynamic(
+            model, 
+            {torch.nn.Linear},  # Specify layers to quantize
+            dtype=torch.qint8    # Use int8 quantization
+        )
+        torch.save(quantized_model, "models/quantized_model")
+    return qmodel, inference_transforms
+    
 
 
 def prepare_batch(image, quad):
@@ -37,7 +55,7 @@ def prepare_batch(image, quad):
             img = rotate_image_lossless_transpose(image, angle)
             images.append(img)
 
-    images = [inference_transforms(img) for img in images]
+    images = [inference_transforms(img.convert("RGB")) for img in images]
 
     images = torch.stack(images, 0).to(device)
     return images
@@ -84,7 +102,8 @@ if __name__ == "__main__":
     parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
     
     parser.add_argument("--cpu", action='store_true')
-
+    
+    parser.add_argument("--quant", action='store_true')
     parser.add_argument("--compile", action='store_true')
     parser.add_argument("--trace", action='store_true')
     parser.add_argument("--script", action='store_true')
@@ -95,22 +114,31 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    if args.cpu:
+    CPU = args.cpu or args.quant
+
+    if CPU:
         device = torch.device("cpu")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Using {device}")
+
+
+    if args.quant:
+        model, inference_transforms = load_quant_model()
+    else:
+        model, inference_transforms = load_model()
     
     RECURSIVE = args.recursive
     QUADRO = args.quadro
     DRY = args.dry
     VERBOSE = args.verbosity
+    
 
     assert VERBOSE in ["0", "1", "2"], "Only levels 0, 1, 2 are valid."
 
     
-    if args.f32:
+    if args.f32 or args.quant:
         dtype = torch.float32
     else:
         dtype = torch.bfloat16
