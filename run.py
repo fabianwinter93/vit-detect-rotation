@@ -120,7 +120,7 @@ if __name__ == "__main__":
         dtype = torch.float16
         model.float16()
         
-    elif args.f32:
+    else:
         dtype = torch.float32
         model.float32()
 
