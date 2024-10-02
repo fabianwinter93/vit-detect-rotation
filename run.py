@@ -29,10 +29,7 @@ def load_model():
     return model, inference_transforms
 
 def load_quant_model():
-    model = load_model()
-        
-    data_config = timm.data.resolve_model_data_config(model)
-    inference_transforms = timm.data.create_transform(**data_config, is_training=False)
+    model, inference_transforms = load_model()
 
     try:
         qmodel = torch.load("models/quantized_model")
