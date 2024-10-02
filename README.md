@@ -25,7 +25,7 @@ command line options
 | Command | Description | Default |
 | ----- | ----- | ----- |
 | `--recursive` | If given, search for all **JPG**, **PNG** in the directory and all sub-directories, for any other value search only the directory | Off |
-| `--quant` | If given, use quantized model (must use only) | Off |
+| `--quant` | If given, use quantized model (must use **CPU**) | Off |
 | `--dry` | If given, do nothing, for any other value this has no effect | Off |
 | `--cpu` | Do not use a gpu (by default gpu is used) | Off |
 | `--f32` | Use float32 for everything instead of bf16 (b16 is default) | Off |
