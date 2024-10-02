@@ -128,22 +128,22 @@ if __name__ == "__main__":
 
     
     model.to(device)
+    with torch.no_grad():
+        if args.compile:
+            model = torch.compile(model, backend="cudagraphs", fullgraph=True)
     
-    if args.compile:
-        model = torch.compile(model, backend="cudagraphs", fullgraph=True)
-
-    if args.script:
-        if QUADRO:
-            trace_inp = torch.rand((4, 3, 224, 224))
-        else:
-            trace_inp = torch.rand((1, 3, 224, 224))
-        model = torch.jit.script(model, trace_inp.bfloat16().to(device))
-    elif args.trace:
-        if QUADRO:
-            trace_inp = torch.rand((4, 3, 224, 224))
-        else:
-            trace_inp = torch.rand((1, 3, 224, 224))
-        model = torch.jit.trace(model, trace_inp.bfloat16().to(device))
+        if args.script:
+            if QUADRO:
+                trace_inp = torch.rand((4, 3, 224, 224))
+            else:
+                trace_inp = torch.rand((1, 3, 224, 224))
+            model = torch.jit.script(model, trace_inp.bfloat16().to(device))
+        elif args.trace:
+            if QUADRO:
+                trace_inp = torch.rand((4, 3, 224, 224))
+            else:
+                trace_inp = torch.rand((1, 3, 224, 224))
+            model = torch.jit.trace(model, trace_inp.bfloat16().to(device))
 
 
 
