@@ -1,5 +1,4 @@
 import warnings
-
 warnings.filterwarnings("ignore")
 
 import os
@@ -12,15 +11,14 @@ except FileExistsError:
 os.environ["HUGGINGFACE_HUB_CACHE"] = "./models"
 
 import glob
-
 import argparse
+from PIL import Image 
+from tqdm import tqdm
 
 import torch
+torch.set_grad_enabled(False)
 
-from PIL import Image 
 import timm
-
-from tqdm import tqdm
 
 
 model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
@@ -128,22 +126,22 @@ if __name__ == "__main__":
 
     
     model.to(device)
-    with torch.no_grad():
-        if args.compile:
-            model = torch.compile(model, backend="cudagraphs", fullgraph=True)
-    
-        if args.script:
-            if QUADRO:
-                trace_inp = torch.rand((4, 3, 224, 224))
-            else:
-                trace_inp = torch.rand((1, 3, 224, 224))
-            model = torch.jit.script(model, trace_inp.bfloat16().to(device))
-        elif args.trace:
-            if QUADRO:
-                trace_inp = torch.rand((4, 3, 224, 224))
-            else:
-                trace_inp = torch.rand((1, 3, 224, 224))
-            model = torch.jit.trace(model, trace_inp.bfloat16().to(device))
+
+    if args.compile:
+        model = torch.compile(model, backend="cudagraphs", fullgraph=True)
+
+    if args.script:
+        if QUADRO:
+            trace_inp = torch.rand((4, 3, 224, 224))
+        else:
+            trace_inp = torch.rand((1, 3, 224, 224))
+        model = torch.jit.script(model, trace_inp.bfloat16().to(device))
+    elif args.trace:
+        if QUADRO:
+            trace_inp = torch.rand((4, 3, 224, 224))
+        else:
+            trace_inp = torch.rand((1, 3, 224, 224))
+        model = torch.jit.trace(model, trace_inp.bfloat16().to(device))
 
 
 
@@ -169,53 +167,52 @@ if __name__ == "__main__":
     
     num_images_to_reorient = 0
 
-    with torch.no_grad():
 
-        _range = range(n_src_files)
-        if VERBOSE in ["2"]:
-            _range = tqdm(_range)
-            
-        for i in _range:
-
-            fname = source_files[i]
-            fpath = os.path.join(src_dir, fname)
-
-            
-            img = Image.open(fpath)
-            batch = prepare_batch(img, True).to(dtype)
-            
-            pred = predict(batch)
-
-            
-            #logits = model(inference_transforms(img)[None, ...].to(device))
-            #probs = torch.nn.functional.softmax(logits, -1)
-            #pred = torch.argmax(probs, -1).item()
-
-            predictions[fpath] = pred
-    
-            if pred == 0:
-                if VERBOSE in ["0"]:
-                    print(fname)
-            else:
-                if VERBOSE in ["0", "1"]:
-                    print(f"{fname} - turn {90*pred}°")
-                    
-                num_images_to_reorient += 1
-    
-                targetpath = fpath
-                #targetpath = targetpath.replace(".jpg", "_COPY.jpg")
-                #targetpath = targetpath.replace(".png", "_COPY.png")
-    
-                rotated_img = rotate_image_lossless_transpose(img, 90*pred)
-                if DRY is False:
-                    rotated_img.save(targetpath)
-    
+    _range = range(n_src_files)
+    if VERBOSE in ["2"]:
+        _range = tqdm(_range)
         
+    for i in _range:
+
+        fname = source_files[i]
+        fpath = os.path.join(src_dir, fname)
+
+        
+        img = Image.open(fpath)
+        batch = prepare_batch(img, True).to(dtype)
+        
+        pred = predict(batch)
+
+        
+        #logits = model(inference_transforms(img)[None, ...].to(device))
+        #probs = torch.nn.functional.softmax(logits, -1)
+        #pred = torch.argmax(probs, -1).item()
+
+        predictions[fpath] = pred
+
+        if pred == 0:
+            if VERBOSE in ["0"]:
+                print(fname)
+        else:
+            if VERBOSE in ["0", "1"]:
+                print(f"{fname} - turn {90*pred}°")
+                
+            num_images_to_reorient += 1
+
+            targetpath = fpath
+            #targetpath = targetpath.replace(".jpg", "_COPY.jpg")
+            #targetpath = targetpath.replace(".png", "_COPY.png")
+
+            rotated_img = rotate_image_lossless_transpose(img, 90*pred)
+            if DRY is False:
+                rotated_img.save(targetpath)
+
     
-        print(f"Found {num_images_to_reorient} images with incorrect orientation") 
-        if num_images_to_reorient == 0: exit()
-    
-    
+
+    print(f"Found {num_images_to_reorient} images with incorrect orientation") 
+    if num_images_to_reorient == 0: exit()
+
+
         
 
 
