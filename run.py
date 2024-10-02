@@ -1,4 +1,3 @@
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -18,8 +17,6 @@ from tqdm import tqdm
 
 import torch
 torch.set_grad_enabled(False)
-
-print(print(torch.cuda.is_available()))
 
 import timm
 
@@ -98,7 +95,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    if not args.cpu:
+    if args.cpu:
         device = torch.device("cpu")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
