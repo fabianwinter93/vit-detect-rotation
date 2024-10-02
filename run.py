@@ -39,7 +39,8 @@ def load_quant_model():
             {torch.nn.Linear},  # Specify layers to quantize
             dtype=torch.qint8    # Use int8 quantization
         )
-        torch.save(quantized_model, "models/quantized_model")
+        torch.save(qmodel, "models/quantized_model")
+        
     return qmodel, inference_transforms
     
 
