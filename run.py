@@ -122,7 +122,7 @@ if __name__ == "__main__":
         
     else:
         dtype = torch.float32
-        model.float32()
+        #model.float32()
 
     
     model.to(device)
