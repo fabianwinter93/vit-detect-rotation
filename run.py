@@ -105,7 +105,7 @@ if __name__ == "__main__":
     parser.add_argument("--f16", action='store_true')
     parser.add_argument("--f32", action='store_true')
     
-    parser.add_argument("-v", default="2", help="verbosity level")
+    parser.add_argument("--verbosity", default="2", help="verbosity level")
     
     args = parser.parse_args()
 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     RECURSIVE = args.recursive
     QUADRO = args.quadro
     DRY = args.dry
-    VERBOSE = args.v
+    VERBOSE = args.verbosity
 
     assert VERBOSE in ["0", "1", "2"], "Only levels 0, 1, 2 are valid."
 
