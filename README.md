@@ -30,7 +30,6 @@ command line options
 | `--cpu` | Do not use a gpu (by default gpu is used) |
 | `--f32` | Use float32 for everything instead of bf16 (b16 is default) |
 | `--verbosity` | Verbosity level. **0** - print all filenames, **1** - print only filenames of rotated images, **2** tqdm progress bar |
-
 | `--quadro` | If given, compare logit-confidence score for each rotation and pick the best, else use logits for prediction |
 | `--compile` | Use torch.compile on the model |
 | `--script` | Use torch.jit.script on the model |
