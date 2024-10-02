@@ -23,22 +23,6 @@ import timm
 from tqdm import tqdm
 
 
-#model_name = "timm/vit_small_patch16_384.augreg_in21k_ft_in1k"
-#ckp = "vit_small_patch16_384.augreg_in21k_ft_in1k_with_orientation_head.pt"
-"""
-model_name = "timm/vit_base_patch16_224.augreg2_in21k_ft_in1k"
-ckp = "vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt"
-
-
-
-model = timm.create_model(
-    model_name,
-    checkpoint_path=ckp,
-    pretrained=True,
-    num_classes=4,
-)
-"""
-
 model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
 model.eval()    
 
