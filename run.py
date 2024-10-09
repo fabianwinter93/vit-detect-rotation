@@ -23,12 +23,11 @@ import timm
 
 from concurrent import futures
 
-MODEL_NAME_80M = 'hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt'
-MODEL_NAME_4M = 'hf_hub:herrkobold/efficientnet_b0.ra_in1k_with_orientation_head'
-MODEL_NAME_20M = "hf_hub:herrkobold/vit_small_patch16_224.dino.with_orientation_head"
-MODEL_NAME_17M = 'hf_hub:herrkobold/efficientnet_b4.ra2_in1k_2_with_orientation_head'
+VIT80 = 'hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt'
+ENET4 = 'hf_hub:herrkobold/efficientnet_b0.ra_in1k_with_orientation_head'
+VIT20 = "hf_hub:herrkobold/vit_small_patch16_224.dino.with_orientation_head"
+ENET20 = 'hf_hub:herrkobold/efficientnet_b4.ra2_in1k_2_with_orientation_head'
 
-MODEL_SIZE_URL = {"L":MODEL_NAME_80M, "M": MODEL_NAME_20M, "S": MODEL_NAME_17M, "XS": MODEL_NAME_4M}
 
 
 MODEL = None
@@ -36,12 +35,17 @@ TRANSFORM = None
 
 ONNX_SESSION = None
 ONNX_INPUT_NAME = None
+ONNX_REPARAM = False
 
+QUADRO = False
+CPU = False
+QUANT = False
 
-def load_model(model_name):
+def load_model(model_name, device):
     global MODEL, TRANSFORM
     model = timm.create_model(model_name, pretrained=True, num_classes=4)
     model.eval()
+    model.to(device)
     
     data_config = timm.data.resolve_model_data_config(model)
     inference_transforms = timm.data.create_transform(**data_config, is_training=False)
@@ -50,8 +54,8 @@ def load_model(model_name):
     
 
 
-def load_quant_model(model_name):
-    load_model(model_name)
+def load_quant_model(model_name, device):
+    load_model(model_name, device)
 
     torch.quantization.quantize_dynamic(
         MODEL, 
@@ -62,18 +66,22 @@ def load_quant_model(model_name):
     
     
     
-def load_onnx_model(model_name):
-    global MODEL, ONNX_SESSION, ONNX_INPUT_NAME
+def load_onnx_model(model_name, device):
+    global MODEL, ONNX_SESSION, ONNX_INPUT_NAME, ONNX_REPARAM
 
     import onnxruntime as ort
     from timm.utils.onnx import onnx_export
-    from timm.utils.model import reparameterize_model
+    
 
     
-    load_model(model_name)
+    load_model(model_name, device)
 
-    MODEL = reparameterize_model(MODEL)
-    onnx_file_name = model_name.removeprefix("hf_hub:herrkobold/") + ".onnx"
+    if ONNX_REPARAM:
+        from timm.utils.model import reparameterize_model
+        MODEL = reparameterize_model(MODEL)
+        onnx_file_name = model_name.removeprefix("hf_hub:herrkobold/") + ".reparam.onnx"
+    else:
+        onnx_file_name = model_name.removeprefix("hf_hub:herrkobold/") + ".onnx"
     
     if os.path.exists(f"./models/{onnx_file_name}"):
         pass
@@ -142,20 +150,22 @@ def find_files(dirpath, recursive):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('source_dir')           
-    parser.add_argument("--XS", action='store_true')
-    parser.add_argument("--S", action='store_true')
-    parser.add_argument("--M", action='store_true')
-    parser.add_argument("--L", action='store_true')
+    parser.add_argument("--VIT80", action='store_true')
+    parser.add_argument("--VIT20", action='store_true')
+    parser.add_argument("--ENET20", action='store_true')
+    parser.add_argument("--ENET4", action='store_true')
 
-        
+    
+
     parser.add_argument('--recursive', action="store_true", help="If exactly YES, will find files in subfolders as well. For any other value, will only consider files in the source directory")
-    parser.add_argument("--quadro", action='store_true', help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
-    parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
     
     parser.add_argument("--cpu", action='store_true')
     parser.add_argument("--onnx", action='store_true')
-    
+    parser.add_argument("--onnx-reparam", action='store_true')
     parser.add_argument("--quant", action='store_true')
+
+    parser.add_argument("--quadro", action='store_true', help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
+
     parser.add_argument("--compile", action='store_true')
     parser.add_argument("--trace", action='store_true')
     parser.add_argument("--script", action='store_true')
@@ -163,41 +173,41 @@ if __name__ == "__main__":
     parser.add_argument("--f32", action='store_true')
     
     parser.add_argument("--verbosity", default="2", help="verbosity level")
-    
+    parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
+
     args = parser.parse_args()
 
-    CPU = args.cpu or args.quant
-
-    if args.L: model_name = MODEL_SIZE_URL["L"]
-    elif args.M: model_name = MODEL_SIZE_URL["M"]
-    elif args.S: model_name = MODEL_SIZE_URL["S"]
-    elif args.XS: model_name = MODEL_SIZE_URLS["XS"]
-    else:
-        raise Exception("Must choose a model size [S, M, L]")
+    CPU = args.cpu or args.quant or args.onnx or not torch.cuda.is_available()
+    QUADRO = args.quadro
+    QUANT = args.quant
+    ONNX = args.onnx
+    ONNX_REPARAM = args.onnx_reparam
+    RECURSIVE = args.recursive
+    DRY = args.dry
+    VERBOSE = args.verbosity
     
     if CPU:
         device = torch.device("cpu")
     else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda")
 
     print(f"Using {device}")
-
     
-    if args.quant:
-        load_quant_model(model_name)
-    elif args.onnx:
-        load_onnx_model(model_name)
+    if args.VIT80: model_name = VIT80
+    elif args.VIT20: model_name = VIT20
+    elif args.ENET20: model_name = ENET20
+    elif args.ENET4: model_name = ENET4
     else:
-        load_model(model_name)
+        raise Exception("Choose valid model.")
+    
+    if QUANT:
+        load_quant_model(model_name, device)
+    elif ONNX:
+        load_onnx_model(model_name, device)
+    else:
+        load_model(model_name, device)
 
 
-    #num_params = sum(p.numel() for p in model.parameters()) / (10**6)
-    #print(f"load model: {model_name} with {num_params} million parameters")
-
-    RECURSIVE = args.recursive
-    QUADRO = args.quadro
-    DRY = args.dry
-    VERBOSE = args.verbosity
     
 
     assert VERBOSE in ["0", "1", "2"], "Only levels 0, 1, 2 are valid."
