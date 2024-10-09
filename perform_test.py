@@ -2,14 +2,20 @@ import subprocess
 import itertools
 import sys
 import time
+import random
+
 
 # Define the parameter combinations
 models = ['--GMIX25', '--VIT20', '--ENET20', '--ENET4', '--VIT80']
-options = ['', '--quant', '--onnx', '--onnx --onnx-reparam', '--cpu']
-hardware = ['', '--quadro']
+options = ['', '--quant', '--onnx', '--onnx --onnx-reparam']
+method = ['', '--quadro']
+
+random.shuffle(models)
+random.shuffle(options)
+random.shuffle(method)
 
 # Generate all combinations of parameters
-combinations = itertools.product(models, options, hardware)
+combinations = itertools.product(models, options, method)
 
 # Path to the script to be tested
 script_to_test = 'python run.py'
@@ -36,6 +42,9 @@ def test_combinations(extra_args):
             elapsed_time = end_time - start_time
             print(f"Error while running {command}:\n{e.stderr.decode()}")
             print(f"Execution time: {elapsed_time:.2f} seconds")
+
+        print("--")
+        print("--")
 
 if __name__ == '__main__':
     # Pass all arguments after tester.py to run.py
