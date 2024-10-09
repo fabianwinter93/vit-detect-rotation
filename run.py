@@ -110,7 +110,8 @@ def prepare_batch(image, quad):
 
 def predict(batch):
     if ONNX_SESSION is not None:
-        logits = ONNX_SESSION.run([], {ONNX_INPUT_NAME: batch})
+        print(ONNX_INPUT_NAME)
+        logits = ONNX_SESSION.run(None, [{ONNX_INPUT_NAME: batch}])
     else:
         logits = MODEL(batch)
     
