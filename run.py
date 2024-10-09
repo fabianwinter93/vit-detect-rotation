@@ -99,8 +99,11 @@ def find_files(dirpath, recursive):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('source_dir')           
-    parser.add_argument('--model-size', choices=["L", "M", "S"])           
-    
+    parser.add_argument("--S", action='store_true')
+    parser.add_argument("--M", action='store_true')
+    parser.add_argument("--L", action='store_true')
+
+        
     parser.add_argument('--recursive', action="store_true", help="If exactly YES, will find files in subfolders as well. For any other value, will only consider files in the source directory")
     parser.add_argument("--quadro", action='store_true', help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
     parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
@@ -120,14 +123,11 @@ if __name__ == "__main__":
 
     CPU = args.cpu or args.quant
 
-    match args.model_size:
-        case "L":
-            model_name = MODEL_SIZE_URL["L"]
-        case "M":
-            model_name = MODEL_SIZE_URL["M"]
-        case "S":
-            model_name = MODEL_SIZE_URL["S"]
-
+    if args.L: model_name = MODEL_SIZE_URL["L"]
+    elif args.M: model_name = MODEL_SIZE_URL["M"]
+    elif args.S: model_name = MODEL_SIZE_URL["S"]
+    else:
+        raise Exception("Must choose a model size [S, M, L]")
     
     if CPU:
         device = torch.device("cpu")
