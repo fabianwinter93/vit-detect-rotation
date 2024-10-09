@@ -166,10 +166,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--quadro", action='store_true', help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
 
-    parser.add_argument("--compile", action='store_true')
-    parser.add_argument("--trace", action='store_true')
-    parser.add_argument("--script", action='store_true')
-
     parser.add_argument("--f32", action='store_true')
     
     parser.add_argument("--verbosity", default="2", help="verbosity level")
@@ -221,30 +217,9 @@ if __name__ == "__main__":
         
     MODEL.to(device)
 
-
-    
-
     
     with torch.inference_mode():
         
-        if args.compile:
-            MODEL = torch.compile(MODEL, backend="cudagraphs", fullgraph=True)
-    
-        if args.script:
-            if QUADRO:
-                trace_inp = torch.rand((4, 3, 224, 224))
-            else:
-                trace_inp = torch.rand((1, 3, 224, 224))
-            MODEL = torch.jit.script(MODEL, trace_inp.to(dtype).to(device))
-        elif args.trace:
-            if QUADRO:
-                trace_inp = torch.rand((4, 3, 224, 224))
-            else:
-                trace_inp = torch.rand((1, 3, 224, 224))
-            MODEL = torch.jit.trace(MODEL, trace_inp.to(dtype).to(device))
-    
-    
-    
         src_dir = os.path.abspath(args.source_dir)
         src_dir = os.path.normpath(src_dir)
     
@@ -255,7 +230,6 @@ if __name__ == "__main__":
         assert n_src_files > 0, f"No valid files (jpg, png) found in {src_dir}"
         
         print(f"Found {n_src_files} valid files in {src_dir}.")
-    
     
     
         subfolders = {}
@@ -278,7 +252,7 @@ if __name__ == "__main__":
         
                 
                 img = Image.open(fpath)
-                batch = prepare_batch(img, True).to(dtype)
+                batch = prepare_batch(img, QUADRO).to(dtype)
                 
                 pred = predict(batch)
         
