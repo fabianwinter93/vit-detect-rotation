@@ -21,33 +21,72 @@ torch.set_grad_enabled(False)
 
 import timm
 
+from concurrent import futures
+
 MODEL_NAME_80M = 'hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt'
 MODEL_NAME_4M = 'hf_hub:herrkobold/efficientnet_b0.ra_in1k_with_orientation_head'
-MODEL_NAME_20M = 'hf_hub:herrkobold/efficientnet_b4.ra2_in1k_2_with_orientation_head'
+MODEL_NAME_20M = "hf_hub:herrkobold/vit_small_patch16_224.dino.with_orientation_head"
+MODEL_NAME_17M = 'hf_hub:herrkobold/efficientnet_b4.ra2_in1k_2_with_orientation_head'
 
-MODEL_SIZE_URL = {"L":MODEL_NAME_80M, "M": MODEL_NAME_20M, "S": MODEL_NAME_4M}
+MODEL_SIZE_URL = {"L":MODEL_NAME_80M, "M": MODEL_NAME_20M, "S": MODEL_NAME_17M, "XS": MODEL_NAME_4M}
+
+
+MODEL = None
+TRANSFORM = None
+
+ONNX_SESSION = None
+ONNX_INPUT_NAME = None
+
 
 def load_model(model_name):
+    global MODEL, TRANSFORM
     model = timm.create_model(model_name, pretrained=True, num_classes=4)
     model.eval()
     
     data_config = timm.data.resolve_model_data_config(model)
     inference_transforms = timm.data.create_transform(**data_config, is_training=False)
-    return model, inference_transforms
+    MODEL = model
+    TRANSFORM = inference_transforms
+    
+
 
 def load_quant_model(model_name):
-    model, inference_transforms = load_model(model_name)
+    load_model(model_name)
 
     torch.quantization.quantize_dynamic(
-        model, 
-        {torch.nn.Linear, torch.nn.Conv2d},  # Specify layers to quantize
+        MODEL, 
+        {torch.nn.Linear},  # Specify layers to quantize
         dtype=torch.qint8,    # Use int8 quantization
         inplace=True,
     )
     
-    return model, inference_transforms
     
+    
+def load_onnx_model(model_name):
+    global MODEL, ONNX_SESSION, ONNX_INPUT_NAME
 
+    import onnxruntime as ort
+    from timm.utils.onnx import onnx_export
+    from timm.utils.model import reparameterize_model
+
+    
+    load_model(model_name)
+
+    MODEL = reparameterize_model(MODEL)
+    onnx_file_name = model_name.removeprefix("hf_hub:herrkobold/") + ".onnx"
+    
+    if os.path.exists(f"./models/{onnx_file_name}"):
+        pass
+    else:
+        onnx_export(MODEL.eval(), f"./models/{onnx_file_name}",
+            torch.rand((1, 3, 224, 224), requires_grad=False), 
+            training=False, 
+            check=True, 
+            check_forward=False)
+        
+        ONNX_SESSION = ort.InferenceSession(f"./models/{onnx_file_name}")
+        ONNX_INPUT_NAME = ONNX_SESSION.get_inputs()[0].name
+    
 
 def prepare_batch(image, quad):
     images = [image]
@@ -57,13 +96,17 @@ def prepare_batch(image, quad):
             img = rotate_image_lossless_transpose(image, angle)
             images.append(img)
 
-    images = [inference_transforms(img.convert("RGB")) for img in images]
+    images = [TRANSFORM(img.convert("RGB")) for img in images]
 
     images = torch.stack(images, 0).to(device)
     return images
 
 def predict(batch):
-    logits = model(batch)
+    if ONNX_SESSION is not None:
+        logits = ONNX_SESSION.run(None, {ONNX_INPUT_NAME: batch})
+    else:
+        logits = MODEL(batch)
+    
     probs = torch.nn.functional.softmax(logits, -1)
     
     if batch.shape[0] > 1:
@@ -99,6 +142,7 @@ def find_files(dirpath, recursive):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('source_dir')           
+    parser.add_argument("--XS", action='store_true')
     parser.add_argument("--S", action='store_true')
     parser.add_argument("--M", action='store_true')
     parser.add_argument("--L", action='store_true')
@@ -109,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
     
     parser.add_argument("--cpu", action='store_true')
+    parser.add_argument("--onnx", action='store_true')
     
     parser.add_argument("--quant", action='store_true')
     parser.add_argument("--compile", action='store_true')
@@ -126,6 +171,7 @@ if __name__ == "__main__":
     if args.L: model_name = MODEL_SIZE_URL["L"]
     elif args.M: model_name = MODEL_SIZE_URL["M"]
     elif args.S: model_name = MODEL_SIZE_URL["S"]
+    elif args.XS: model_name = MODEL_SIZE_URLS["XS"]
     else:
         raise Exception("Must choose a model size [S, M, L]")
     
@@ -138,13 +184,15 @@ if __name__ == "__main__":
 
     
     if args.quant:
-        model, inference_transforms = load_quant_model(model_name)
+        load_quant_model(model_name)
+    elif args.onnx:
+        load_onnx_model(model_name)
     else:
-        model, inference_transforms = load_model(model_name)
+        load_model(model_name)
 
 
-    num_params = sum(p.numel() for p in model.parameters()) / (10**6)
-    print(f"load model: {model_name} with {num_params} million parameters")
+    #num_params = sum(p.numel() for p in model.parameters()) / (10**6)
+    #print(f"load model: {model_name} with {num_params} million parameters")
 
     RECURSIVE = args.recursive
     QUADRO = args.quadro
@@ -159,28 +207,31 @@ if __name__ == "__main__":
         dtype = torch.float32
     else:
         dtype = torch.bfloat16
-        model.bfloat16()
+        MODEL.bfloat16()
         
-    model.to(device)
+    MODEL.to(device)
 
 
+    
+
+    
     with torch.inference_mode():
         
         if args.compile:
-            model = torch.compile(model, backend="cudagraphs", fullgraph=True)
+            MODEL = torch.compile(MODEL, backend="cudagraphs", fullgraph=True)
     
         if args.script:
             if QUADRO:
                 trace_inp = torch.rand((4, 3, 224, 224))
             else:
                 trace_inp = torch.rand((1, 3, 224, 224))
-            model = torch.jit.script(model, trace_inp.to(dtype).to(device))
+            MODEL = torch.jit.script(MODEL, trace_inp.to(dtype).to(device))
         elif args.trace:
             if QUADRO:
                 trace_inp = torch.rand((4, 3, 224, 224))
             else:
                 trace_inp = torch.rand((1, 3, 224, 224))
-            model = torch.jit.trace(model, trace_inp.to(dtype).to(device))
+            MODEL = torch.jit.trace(MODEL, trace_inp.to(dtype).to(device))
     
     
     
@@ -197,58 +248,58 @@ if __name__ == "__main__":
     
     
     
-    subfolders = {}
-    for fname in source_files:
-        dirname = os.path.dirname(fname)
-        if dirname not in subfolders:
-            subfolders[dirname] = []
-
-        subfolders[dirname].append(fname)
-
-
-    for dirname, files in subfolders.items():
-        num_rotated = 0
-        num_untouched = 0
+        subfolders = {}
+        for fname in source_files:
+            dirname = os.path.dirname(fname)
+            if dirname not in subfolders:
+                subfolders[dirname] = []
+    
+            subfolders[dirname].append(fname)
+    
+    
+        for dirname, files in subfolders.items():
+            num_rotated = 0
+            num_untouched = 0
+            
+    
+            for fname in tqdm(files, total=len(files), desc=dirname):
+                
+                fpath = os.path.join(src_dir, fname)
         
-
-        for fname in tqdm(files, total=len(files), desc=dirname):
-            
-            fpath = os.path.join(src_dir, fname)
+                
+                img = Image.open(fpath)
+                batch = prepare_batch(img, True).to(dtype)
+                
+                pred = predict(batch)
+        
+        
+                if pred == 0:
+                    num_untouched += 1
+                    if VERBOSE in ["0"]:
+                        print(fname)
+                else:
+                    num_rotated += 1
+                    if VERBOSE in ["0", "1"]:
+                        print(f"{fname} - turn {90*pred}°")
+                        
+        
+                    targetpath = fpath
+                    #targetpath = targetpath.replace(".jpg", "_COPY.jpg")
+                    #targetpath = targetpath.replace(".png", "_COPY.png")
+        
+                    rotated_img = rotate_image_lossless_transpose(img, 90*pred)
+                    if DRY is False:
+                        rotated_img.save(targetpath)
+        
     
-            
-            img = Image.open(fpath)
-            batch = prepare_batch(img, True).to(dtype)
-            
-            pred = predict(batch)
-    
-    
-            if pred == 0:
-                num_untouched += 1
-                if VERBOSE in ["0"]:
-                    print(fname)
-            else:
-                num_rotated += 1
-                if VERBOSE in ["0", "1"]:
-                    print(f"{fname} - turn {90*pred}°")
-                    
-    
-                targetpath = fpath
-                #targetpath = targetpath.replace(".jpg", "_COPY.jpg")
-                #targetpath = targetpath.replace(".png", "_COPY.png")
-    
-                rotated_img = rotate_image_lossless_transpose(img, 90*pred)
-                if DRY is False:
-                    rotated_img.save(targetpath)
-    
-
-        if DRY is False:
-            with open(os.path.join(dirname, "log.txt"), "w") as wf:
-                    
-                wf.write(f"rotated,untouched,\n")
-                wf.write(f"{num_rotated},{num_untouched},\n")
-            
-        print(f"Found {num_rotated}/{num_untouched+num_rotated} images with incorrect orientation") 
-        #if num_images_to_reorient == 0: exit()
-    
+            if DRY is False:
+                with open(os.path.join(dirname, "log.txt"), "w") as wf:
+                        
+                    wf.write(f"rotated,untouched,\n")
+                    wf.write(f"{num_rotated},{num_untouched},\n")
+                
+            print(f"Found {num_rotated}/{num_untouched+num_rotated} images with incorrect orientation") 
+            #if num_images_to_reorient == 0: exit()
+        
 
         
