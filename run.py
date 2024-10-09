@@ -1,3 +1,4 @@
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -20,28 +21,31 @@ torch.set_grad_enabled(False)
 
 import timm
 
-def load_model():
-    model = timm.create_model('hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt', pretrained=True)
+MODEL_NAME_80M = 'hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orientation_head.pt'
+MODEL_NAME_4M = 'hf_hub:herrkobold/efficientnet_b0.ra_in1k_with_orientation_head'
+MODEL_NAME_20M = 'hf_hub:herrkobold/efficientnet_b4.ra2_in1k_2_with_orientation_head'
+
+MODEL_SIZE_URL = {"L":MODEL_NAME_80M, "M": MODEL_NAME_20M, "S": MODEL_NAME_4M}
+
+def load_model(model_name):
+    model = timm.create_model(model_name, pretrained=True, num_classes=4)
     model.eval()
     
     data_config = timm.data.resolve_model_data_config(model)
     inference_transforms = timm.data.create_transform(**data_config, is_training=False)
     return model, inference_transforms
 
-def load_quant_model():
-    model, inference_transforms = load_model()
+def load_quant_model(model_name):
+    model, inference_transforms = load_model(model_name)
 
-    try:
-        qmodel = torch.load("models/quantized_model")
-    except:
-        qmodel = torch.quantization.quantize_dynamic(
-            model, 
-            {torch.nn.Linear},  # Specify layers to quantize
-            dtype=torch.qint8    # Use int8 quantization
-        )
-        torch.save(qmodel, "models/quantized_model")
-        
-    return qmodel, inference_transforms
+    torch.quantization.quantize_dynamic(
+        model, 
+        {torch.nn.Linear, torch.nn.Conv2d},  # Specify layers to quantize
+        dtype=torch.qint8,    # Use int8 quantization
+        inplace=True,
+    )
+    
+    return model, inference_transforms
     
 
 
@@ -95,6 +99,8 @@ def find_files(dirpath, recursive):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('source_dir')           
+    parser.add_argument('--model-size', choices=["L", "M", "S"])           
+    
     parser.add_argument('--recursive', action="store_true", help="If exactly YES, will find files in subfolders as well. For any other value, will only consider files in the source directory")
     parser.add_argument("--quadro", action='store_true', help="If exactly YES, compare logit-confidence score for each rotation and pick the best, else use logits for prediction")
     parser.add_argument("--dry", action='store_true', help="If exactly YES, do nothing")
@@ -114,6 +120,15 @@ if __name__ == "__main__":
 
     CPU = args.cpu or args.quant
 
+    match args.model_size:
+        case "L":
+            model_name = MODEL_SIZE_URL["L"]
+        case "M":
+            model_name = MODEL_SIZE_URL["M"]
+        case "S":
+            model_name = MODEL_SIZE_URL["S"]
+
+    
     if CPU:
         device = torch.device("cpu")
     else:
@@ -121,12 +136,16 @@ if __name__ == "__main__":
 
     print(f"Using {device}")
 
-
-    if args.quant:
-        model, inference_transforms = load_quant_model()
-    else:
-        model, inference_transforms = load_model()
     
+    if args.quant:
+        model, inference_transforms = load_quant_model(model_name)
+    else:
+        model, inference_transforms = load_model(model_name)
+
+
+    num_params = sum(p.numel() for p in model.parameters()) / (10**6)
+    print(f"load model: {model_name} with {num_params} million parameters")
+
     RECURSIVE = args.recursive
     QUADRO = args.quadro
     DRY = args.dry
@@ -165,12 +184,6 @@ if __name__ == "__main__":
     
     
     
-        #with torch.no_grad():
-            #pass
-            #model = torch.jit.script(model, trace_inp.bfloat16().to(device))
-            #model = torch.jit.optimize_for_inference(model)
-            #model = torch.compile(model, backend="cudagraphs", fullgraph=True)
-            
         src_dir = os.path.abspath(args.source_dir)
         src_dir = os.path.normpath(src_dir)
     
@@ -183,19 +196,23 @@ if __name__ == "__main__":
         print(f"Found {n_src_files} valid files in {src_dir}.")
     
     
-        predictions = {}
     
+    subfolders = {}
+    for fname in source_files:
+        dirname = os.path.dirname(fname)
+        if dirname not in subfolders:
+            subfolders[dirname] = []
+
+        subfolders[dirname].append(fname)
+
+
+    for dirname, files in subfolders.items():
+        num_rotated = 0
+        num_untouched = 0
         
-        num_images_to_reorient = 0
-    
-    
-        _range = range(n_src_files)
-        if VERBOSE in ["2"]:
-            _range = tqdm(_range)
+
+        for fname in tqdm(files, total=len(files), desc=dirname):
             
-        for i in _range:
-    
-            fname = source_files[i]
             fpath = os.path.join(src_dir, fname)
     
             
@@ -204,21 +221,16 @@ if __name__ == "__main__":
             
             pred = predict(batch)
     
-            
-            #logits = model(inference_transforms(img)[None, ...].to(device))
-            #probs = torch.nn.functional.softmax(logits, -1)
-            #pred = torch.argmax(probs, -1).item()
-    
-            predictions[fpath] = pred
     
             if pred == 0:
+                num_untouched += 1
                 if VERBOSE in ["0"]:
                     print(fname)
             else:
+                num_rotated += 1
                 if VERBOSE in ["0", "1"]:
                     print(f"{fname} - turn {90*pred}°")
                     
-                num_images_to_reorient += 1
     
                 targetpath = fpath
                 #targetpath = targetpath.replace(".jpg", "_COPY.jpg")
@@ -228,10 +240,15 @@ if __name__ == "__main__":
                 if DRY is False:
                     rotated_img.save(targetpath)
     
-        
-    
-        print(f"Found {num_images_to_reorient} images with incorrect orientation") 
-        if num_images_to_reorient == 0: exit()
+
+        if DRY is False:
+            with open(os.path.join(dirname, "log.txt"), "w") as wf:
+                    
+                wf.write(f"rotated,untouched,\n")
+                wf.write(f"{num_rotated},{num_untouched},\n")
+            
+        print(f"Found {num_rotated}/{num_untouched+num_rotated} images with incorrect orientation") 
+        #if num_images_to_reorient == 0: exit()
     
 
         
