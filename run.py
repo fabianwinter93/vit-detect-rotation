@@ -91,8 +91,8 @@ def load_onnx_model(model_name, device):
             check=True, 
             check_forward=False)
         
-        ONNX_SESSION = ort.InferenceSession(f"./models/{onnx_file_name}")
-        ONNX_INPUT_NAME = ONNX_SESSION.get_inputs()[0].name
+    ONNX_SESSION = ort.InferenceSession(f"./models/{onnx_file_name}")
+    ONNX_INPUT_NAME = ONNX_SESSION.get_inputs()[0].name
     
 
 def prepare_batch(image, quad):
