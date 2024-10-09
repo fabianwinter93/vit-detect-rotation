@@ -26,7 +26,7 @@ VIT80 = 'hf_hub:herrkobold/vit_base_patch16_224.augreg2_in21k_ft_in1k_with_orien
 ENET4 = 'hf_hub:herrkobold/efficientnet_b0.ra_in1k_with_orientation_head'
 VIT20 = "hf_hub:herrkobold/vit_small_patch16_224.dino.with_orientation_head"
 ENET20 = 'hf_hub:herrkobold/efficientnet_b4.ra2_in1k_2_with_orientation_head'
-
+GMIX25 = 'hf_hub:herrkobold/gmixer_24_224.ra3_in1k.detect_rotation'
 
 
 MODEL = None
@@ -72,7 +72,7 @@ def load_onnx_model(model_name, device):
     from timm.utils.onnx import onnx_export
     
 
-    
+    print(ort.get_device())
     load_model(model_name, device)
 
     if ONNX_REPARAM:
@@ -85,8 +85,10 @@ def load_onnx_model(model_name, device):
     if os.path.exists(f"./models/{onnx_file_name}"):
         pass
     else:
+        input_size = MODEL.pretrained_cfg["input_size"][-1]
+
         onnx_export(MODEL.eval(), f"./models/{onnx_file_name}",
-            torch.rand((1, 3, 224, 224), requires_grad=False), 
+            torch.rand((1, 3, input_size, input_size), requires_grad=False), 
             training=False, 
             check=True, 
             check_forward=False)
@@ -110,8 +112,9 @@ def prepare_batch(image, quad):
 
 def predict(batch):
     if ONNX_SESSION is not None:
-        print(ONNX_INPUT_NAME)
-        logits = ONNX_SESSION.run(None, [{ONNX_INPUT_NAME: batch}])
+        logits = ONNX_SESSION.run(None, {ONNX_INPUT_NAME: batch.to(torch.float32).numpy()})
+
+        logits = torch.Tensor(logits)
     else:
         logits = MODEL(batch)
     
@@ -154,6 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--VIT20", action='store_true')
     parser.add_argument("--ENET20", action='store_true')
     parser.add_argument("--ENET4", action='store_true')
+    parser.add_argument("--GMIX25", action='store_true')
 
     
 
@@ -193,6 +197,7 @@ if __name__ == "__main__":
     elif args.VIT20: model_name = VIT20
     elif args.ENET20: model_name = ENET20
     elif args.ENET4: model_name = ENET4
+    elif args.GMIX25: model_name = GMIX25
     else:
         raise Exception("Choose valid model.")
     
@@ -203,7 +208,7 @@ if __name__ == "__main__":
     else:
         load_model(model_name, device)
 
-
+	
     
 
     assert VERBOSE in ["0", "1", "2"], "Only levels 0, 1, 2 are valid."
@@ -249,7 +254,6 @@ if __name__ == "__main__":
             for fname in tqdm(files, total=len(files), desc=dirname):
                 
                 fpath = os.path.join(src_dir, fname)
-        
                 
                 img = Image.open(fpath)
                 batch = prepare_batch(img, QUADRO).to(dtype)
