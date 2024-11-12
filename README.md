@@ -19,9 +19,11 @@ for gpu:
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 ```
 
-pip install -r requirements.txt
-
+install requirements
 ```
+pip install -r requirements.txt
+```
+
 use from CL
 ```
 python main.py path/to/image_folder --recursive --dry
