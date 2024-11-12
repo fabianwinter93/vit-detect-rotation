@@ -13,10 +13,15 @@ python -m venv .venv
 for cpu:
 ```
 pip install torch torchvision
+pip install onnx, onnxruntime
+
 ```
 for gpu:
 ```
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install onnx, onnxruntime-gpu
+
+
 ```
 
 install requirements
