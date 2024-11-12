@@ -33,9 +33,9 @@ command line options
 
 | Command | Description | Default |
 | ----- | ----- | ----- |
-| `--recursive    ` | If given, search for all **JPG**, **PNG** in the directory and all sub-directories, for any other value search only the directory | Off |
-| `--dry    ` | If given, do nothing, for any other value this has no effect | Off |
-| `--cpu    ` | If given, do not try to use GPU | ON |
+| `--recursive   ` | If given, search for all **JPG**, **PNG** in the directory and all sub-directories, for any other value search only the directory | Off |
+| `--dry   ` | If given, do nothing, for any other value this has no effect | Off |
+| `--cpu   ` | If given, do not try to use GPU | ON |
 
 
 
